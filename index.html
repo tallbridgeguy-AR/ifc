@@ -1,1 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Blocks this page from sending data anywhere but its own origin. See README → Privacy. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gh7NRJ7MEWdYUGMcXx0SUMJY93gUi2UqlztG1amlvwA='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Bridge IFC Viewer — prototype</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+  <script type="module" src="src/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Bridge IFC Viewer <span class="tag">prototype</span></div>
+    <label class="btn primary">Open IFC…<input id="file" type="file" accept=".ifc,.IFC" hidden></label>
+    <button class="btn" id="fit-btn" disabled title="Fit view (F)">Fit view</button>
+    <div class="align-group" id="align-group" hidden>
+      <label>Alignment <select id="align-select"></select></label>
+      <form id="goto-form"><input id="goto-input" placeholder="Go to station" size="18" autocomplete="off"><button class="btn">Go</button></form>
+      <span class="muted" id="align-info"></span>
+    </div>
+    <div class="spacer"></div>
+    <label class="chk"><input type="checkbox" id="hover-chk" checked> Live station readout</label>
+    <div class="privacy" title="Models are read and processed inside this browser tab. Nothing is uploaded.">🔒 Files stay on this computer</div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel left">
+      <nav class="tabs">
+        <button data-tab="tree" class="active">Bridge</button>
+        <button data-tab="layers">Layers</button>
+        <button data-tab="checks">Checks</button>
+      </nav>
+      <section id="tab-tree" class="tab active"><div class="empty">Open an IFC4.3 file to see the bridge breakdown.</div></section>
+      <section id="tab-layers" class="tab"></section>
+      <section id="tab-checks" class="tab">
+        <button class="btn" id="run-checks" disabled>Run model checks</button>
+        <p class="muted">Rules come from <code>config/requirements.json</code>.</p>
+        <div id="check-results"></div>
+      </section>
+    </aside>
+
+    <div id="viewport" class="viewport">
+      <div id="drop-hint" class="drop-hint">
+        <div class="drop-title">Drop an IFC4.3 bridge model here</div>
+        <div>or use <b>Open IFC…</b>. Try <code>samples/demo-bridge.ifc</code> from this repo.</div>
+        <div class="muted">The file is read in your browser and never uploaded.</div>
+      </div>
+      <div id="progress" class="progress" hidden><div class="spinner"></div><span id="progress-text"></span></div>
+    </div>
+
+    <aside class="panel right">
+      <h2>Properties</h2>
+      <div id="props"><div class="empty">Click an element.</div></div>
+    </aside>
+  </main>
+
+  <footer class="statusbar"><span id="status-left">Ready.</span><span id="status-right"></span></footer>
+</body>
+</html>
 
