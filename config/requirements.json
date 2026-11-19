@@ -1,0 +1,12 @@
+{
+  "title": "Example DOT bridge model requirements (edit me)",
+  "about": "A simple stand-in for buildingSMART IDS. Each rule names an IFC entity and either an attribute or a property-set property that must be present and non-empty. Optional \"values\" restricts the allowed values.",
+  "rules": [
+    { "id": "BR-01", "description": "Bridge carries its structure number (NBI Item 8)", "entity": "IfcBridge", "pset": "DOT_BridgeInfo", "property": "StructureNumber" },
+    { "id": "BR-02", "description": "Bridge parts are classified (pier, abutment, superstructure…)", "entity": "IfcBridgePart", "attribute": "PredefinedType" },
+    { "id": "BR-03", "description": "Girders carry a girder mark", "entity": "IfcBeam", "pset": "Pset_BeamCommon", "property": "Reference" },
+    { "id": "BR-04", "description": "Deck slabs state the concrete class", "entity": "IfcSlab", "pset": "DOT_Concrete", "property": "ConcreteClass", "values": ["A", "AA", "HPC"] },
+    { "id": "BR-05", "description": "Pier columns state the concrete class", "entity": "IfcColumn", "pset": "DOT_Concrete", "property": "ConcreteClass" },
+    { "id": "BR-06", "description": "Bearings have a bearing type", "entity": "IfcBearing", "attribute": "PredefinedType" }
+  ]
+}
