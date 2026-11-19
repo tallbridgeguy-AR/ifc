@@ -20,6 +20,7 @@ let ready = null;
 let modelID = null;
 const typeNameByCode = new Map();
 let rel = null; // relationship maps, built once per model
+let nameIndex = null; // [id, name, type, objectType] for search, built on first search
 
 // ---------------------------------------------------------------- helpers
 const post = (msg, transfer = []) => self.postMessage(msg, transfer);
@@ -109,6 +110,7 @@ async function open(buffer) {
   if (modelID !== null) { try { api.CloseModel(modelID); } catch { /* ignore */ } modelID = null; }
   typeNameByCode.clear();
   rel = null;
+  nameIndex = null;
 
   progress('Parsing IFC…');
   modelID = api.OpenModel(new Uint8Array(buffer), {
@@ -621,6 +623,25 @@ async function check(rules) {
   return results;
 }
 
+// ---------------------------------------------------------------- search
+function search(q) {
+  if (!nameIndex) {
+    const ids = new Set();
+    for (const m of [rel.contains, rel.aggregates]) for (const list of m.values()) for (const id of list) ids.add(id);
+    nameIndex = [...ids].map((id) => {
+      const l = line(id);
+      return [id, str(l?.Name) || str(l?.Tag), typeNameOf(id), str(l?.ObjectType)];
+    });
+  }
+  const terms = String(q).toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = nameIndex.filter(([id, name, type, ot]) => {
+    const hay = `${name} ${type} ${ot} #${id}`.toLowerCase().replace(/_/g, ' ');
+    return terms.every((t) => hay.includes(t.replace(/_/g, ' ')));
+  });
+  hits.sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true, sensitivity: 'base' }));
+  return { total: hits.length, ids: hits.map((h) => h[0]), shown: hits.slice(0, 500).map(([id, n, t]) => [id, n, t]) };
+}
+
 // ---------------------------------------------------------------- message loop
 self.onmessage = async (e) => {
   const m = e.data;
@@ -634,6 +655,9 @@ self.onmessage = async (e) => {
         break;
       case 'names':
         post({ type: 'reply', reqId: m.reqId, data: m.ids.map((id) => { const l = line(id); return [id, str(l?.Name) || str(l?.Tag)]; }) });
+        break;
+      case 'search':
+        post({ type: 'reply', reqId: m.reqId, data: search(m.q) });
         break;
       case 'check':
         post({ type: 'reply', reqId: m.reqId, data: await check(m.rules) });

@@ -28,13 +28,19 @@
   </header>
 
   <main class="layout">
-    <aside class="panel left">
+    <aside class="panel left" id="left-panel">
       <nav class="tabs">
         <button data-tab="tree" class="active">Bridge</button>
         <button data-tab="layers">Layers</button>
         <button data-tab="checks">Checks</button>
       </nav>
-      <section id="tab-tree" class="tab active"><div class="empty">Open an IFC4.3 file to see the bridge breakdown.</div></section>
+      <section id="tab-tree" class="tab active">
+        <div class="tree-tools">
+          <input id="tree-search" type="search" placeholder="Search names, e.g. rebar span 2" autocomplete="off" disabled>
+        </div>
+        <div id="search-results" hidden></div>
+        <div id="tree-root"><div class="empty">Open an IFC4.3 file to see the bridge breakdown.</div></div>
+      </section>
       <section id="tab-layers" class="tab"></section>
       <section id="tab-checks" class="tab">
         <button class="btn" id="run-checks" disabled>Run model checks</button>
@@ -42,6 +48,7 @@
         <div id="check-results"></div>
       </section>
     </aside>
+    <div class="splitter" id="split-left" title="Drag to resize"></div>
 
     <div id="viewport" class="viewport">
       <div id="drop-hint" class="drop-hint">
@@ -52,7 +59,8 @@
       <div id="progress" class="progress" hidden><div class="spinner"></div><span id="progress-text"></span></div>
     </div>
 
-    <aside class="panel right">
+    <div class="splitter" id="split-right" title="Drag to resize"></div>
+    <aside class="panel right" id="right-panel">
       <h2>Properties</h2>
       <div id="props"><div class="empty">Click an element.</div></div>
     </aside>

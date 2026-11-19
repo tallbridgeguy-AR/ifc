@@ -98,7 +98,11 @@ function onLoaded(m) {
 }
 
 function resetPanels() {
-  $('tab-tree').innerHTML = '<div class="empty">Loading…</div>';
+  $('tree-root').innerHTML = '<div class="empty">Loading…</div>';
+  $('tree-root').hidden = false;
+  $('search-results').hidden = true;
+  $('tree-search').value = '';
+  $('tree-search').disabled = true;
   $('tab-layers').innerHTML = '';
   $('check-results').innerHTML = '';
   $('props').innerHTML = '<div class="empty">Click an element.</div>';
@@ -276,62 +280,178 @@ function selectButton(onClick) {
   return b;
 }
 
-function nodeLabel(n) {
+const naturalSort = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+const shortType = (t) => t.replace(/^Ifc/, '');
+const GROUP_THRESHOLD = 6; // this many same-type children collapse into one row
+
+/** One-line row: name first, type small and grey, full text in the tooltip. */
+function nodeSummary(n) {
   const isPart = n.type === 'IfcBridgePart' || n.type === 'IfcFacilityPart';
-  const kind = isPart && PART_LABEL[n.pdt] ? PART_LABEL[n.pdt] : n.type.replace(/^Ifc/, '');
-  return `<span class="ty ${isPart ? 'part' : ''}">${esc(kind)}</span> ${esc(n.name)}` +
-    (n.pdt && n.pdt !== 'NOTDEFINED' && !isPart ? ` <span class="badge">${esc(n.pdt)}</span>` : '');
+  const kind = isPart && PART_LABEL[n.pdt] ? PART_LABEL[n.pdt] : shortType(n.type);
+  const detail = n.pdt === 'USERDEFINED' ? n.objectType : n.pdt && n.pdt !== 'NOTDEFINED' && !isPart ? n.pdt : '';
+  const sum = document.createElement('summary');
+  sum.title = [n.name, kind, detail].filter(Boolean).join(' · ');
+  sum.innerHTML = isPart
+    ? `<span class="ty part">${esc(kind)}</span><span class="nm">${esc(n.name && n.name !== kind ? n.name : '')}</span>`
+    : `<span class="nm">${esc(n.name || `#${n.id}`)}</span><span class="ty small">${esc(kind)}</span>` +
+      (detail ? `<span class="badge">${esc(detail)}</span>` : '');
+  return sum;
+}
+
+function groupRow(label, count, ids, selectLabel, fill) {
+  const g = document.createElement('details');
+  g.className = 'group';
+  const gs = document.createElement('summary');
+  gs.title = `${label} (${count})`;
+  gs.innerHTML = `<span class="nm">${esc(label)}</span><span class="count">${fmtInt(count)}</span>`;
+  gs.appendChild(selectButton(() => select(ids(), { zoom: true, label: selectLabel })));
+  g.appendChild(gs);
+  let loaded = false;
+  g.addEventListener('toggle', async () => {
+    if (!g.open || loaded) return;
+    loaded = true;
+    await fill(g);
+  });
+  return g;
+}
+
+function leafRow(id, name, type) {
+  const leaf = document.createElement('div');
+  leaf.className = 'leaf';
+  leaf.title = `${name || `#${id}`}${type ? ' · ' + type : ''}`;
+  leaf.innerHTML = `<span class="nm">${esc(name || `#${id}`)}</span>${type ? `<span class="ty small">${esc(shortType(type))}</span>` : ''}`;
+  leaf.addEventListener('click', () => select([id], { zoom: true }));
+  return leaf;
 }
 
 function buildNode(n, depth) {
   const det = document.createElement('details');
   det.open = depth < 4;
-  const sum = document.createElement('summary');
-  sum.innerHTML = nodeLabel(n);
-  sum.appendChild(selectButton(() => select(collectIds(n), { zoom: true, label: `${n.type.replace(/^Ifc/, '')} ${n.name}` })));
+  const sum = nodeSummary(n);
+  sum.appendChild(selectButton(() => select(collectIds(n), { zoom: true, label: `${shortType(n.type)} ${n.name}` })));
   det.appendChild(sum);
 
-  for (const c of n.children) det.appendChild(buildNode(c, depth + 1));
-  for (const [type, ids] of Object.entries(n.elements).sort((a, b) => a[0].localeCompare(b[0]))) {
-    const g = document.createElement('details');
-    g.className = 'group';
-    const gs = document.createElement('summary');
-    gs.innerHTML = `<span class="ty">${esc(type.replace(/^Ifc/, ''))}</span> <span class="count">${fmtInt(ids.length)}</span>`;
-    gs.appendChild(selectButton(() => select(ids, { zoom: true, label: `${type} in ${n.name || n.type}` })));
-    g.appendChild(gs);
-    let loaded = false;
-    g.addEventListener('toggle', async () => {
-      if (!g.open || loaded) return;
-      loaded = true;
-      const shown = ids.slice(0, 2000);
-      const names = await request('names', { ids: shown });
-      const frag = document.createDocumentFragment();
-      for (const [id, name] of names) {
-        const leaf = document.createElement('div');
-        leaf.className = 'leaf';
-        leaf.textContent = name || `#${id}`;
-        leaf.addEventListener('click', () => select([id], { zoom: true }));
-        frag.appendChild(leaf);
-      }
-      if (ids.length > shown.length) {
-        const more = document.createElement('div');
-        more.className = 'muted';
-        more.textContent = `…and ${fmtInt(ids.length - shown.length)} more`;
-        frag.appendChild(more);
-      }
-      g.appendChild(frag);
-    });
-    det.appendChild(g);
+  // Child nodes: spatial parts stay individual; big runs of one type collapse into a group row.
+  const byType = new Map();
+  for (const c of n.children) {
+    if (!byType.has(c.type)) byType.set(c.type, []);
+    byType.get(c.type).push(c);
+  }
+  for (const [type, kids] of byType) {
+    kids.sort((a, b) => naturalSort(a.name || '', b.name || ''));
+    const spatial = /BridgePart|FacilityPart|Bridge$|Site$|Building$|Storey$/.test(type);
+    if (kids.length < GROUP_THRESHOLD || spatial) {
+      for (const c of kids) det.appendChild(buildNode(c, depth + 1));
+    } else {
+      det.appendChild(groupRow(shortType(type), kids.length, () => kids.flatMap(collectIds),
+        `${shortType(type)} in ${n.name || shortType(n.type)}`,
+        (g) => { for (const c of kids) g.appendChild(buildNode(c, 99)); }));
+    }
+  }
+
+  // Contained elements, grouped by class; names fetched when a group is opened.
+  for (const [type, ids] of Object.entries(n.elements).sort((a, b) => naturalSort(a[0], b[0]))) {
+    det.appendChild(groupRow(shortType(type), ids.length, () => ids, `${shortType(type)} in ${n.name || shortType(n.type)}`,
+      async (g) => {
+        const shown = ids.slice(0, 2000);
+        const names = await request('names', { ids: shown });
+        names.sort((a, b) => naturalSort(a[1] || '', b[1] || ''));
+        const frag = document.createDocumentFragment();
+        for (const [id, name] of names) frag.appendChild(leafRow(id, name));
+        if (ids.length > shown.length) {
+          const more = document.createElement('div');
+          more.className = 'muted';
+          more.textContent = `…and ${fmtInt(ids.length - shown.length)} more (use search or ⌖ to select all)`;
+          frag.appendChild(more);
+        }
+        g.appendChild(frag);
+      }));
   }
   return det;
 }
 
 function renderTree(tree) {
-  const root = $('tab-tree');
+  const root = $('tree-root');
   root.innerHTML = '';
+  $('tree-search').disabled = !tree;
   if (!tree) { root.innerHTML = '<div class="empty">No IfcProject found.</div>'; return; }
   root.appendChild(buildNode(tree, 0));
 }
+
+// ------------------------------------------------------------ search
+let searchTimer = 0, searchSeq = 0;
+$('tree-search').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 250);
+});
+$('tree-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.target.value = ''; runSearch(); }
+});
+
+async function runSearch() {
+  const q = $('tree-search').value.trim();
+  const box = $('search-results');
+  if (!q || !model) { box.hidden = true; $('tree-root').hidden = false; return; }
+  const seq = ++searchSeq;
+  box.hidden = false;
+  $('tree-root').hidden = true;
+  box.innerHTML = '<div class="muted">Searching…</div>';
+  const res = await request('search', { q });
+  if (seq !== searchSeq) return; // a newer search started
+  box.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'result-head';
+  head.innerHTML = `<span class="muted">${fmtInt(res.total)} match${res.total === 1 ? '' : 'es'}</span>`;
+  if (res.total) {
+    const b = document.createElement('button');
+    b.className = 'btn small';
+    b.textContent = 'Select all';
+    b.onclick = () => select(res.ids, { zoom: true, label: `Search: “${q}”` });
+    head.appendChild(b);
+  }
+  box.appendChild(head);
+  for (const [id, name, type] of res.shown) box.appendChild(leafRow(id, name, type));
+  if (res.total > res.shown.length) {
+    const more = document.createElement('div');
+    more.className = 'muted';
+    more.textContent = `Showing first ${fmtInt(res.shown.length)}. Refine the search, or use Select all.`;
+    box.appendChild(more);
+  }
+}
+
+// ------------------------------------------------------------ resizable panels
+function setupSplitter(splitId, panelId, side) {
+  const split = $(splitId), panel = $(panelId), layout = document.querySelector('.layout');
+  const key = `bridge-viewer-${side}-width`;
+  const apply = (w) => layout.style.setProperty(`--${side}-w`, `${w}px`);
+  try { const saved = Number(localStorage.getItem(key)); if (saved > 0) apply(saved); } catch { /* storage unavailable */ }
+  split.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    split.setPointerCapture(e.pointerId);
+    split.classList.add('active');
+    const startX = e.clientX, startW = panel.getBoundingClientRect().width;
+    let w = startW;
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      w = Math.round(Math.max(180, Math.min(window.innerWidth * 0.6, side === 'left' ? startW + dx : startW - dx)));
+      apply(w);
+    };
+    const up = () => {
+      split.classList.remove('active');
+      split.removeEventListener('pointermove', move);
+      split.removeEventListener('pointerup', up);
+      try { localStorage.setItem(key, String(w)); } catch { /* ignore */ }
+    };
+    split.addEventListener('pointermove', move);
+    split.addEventListener('pointerup', up);
+  });
+  split.addEventListener('dblclick', () => { // double-click resets
+    layout.style.removeProperty(`--${side}-w`);
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  });
+}
+setupSplitter('split-left', 'left-panel', 'left');
+setupSplitter('split-right', 'right-panel', 'right');
 
 // ------------------------------------------------------------ layers (by IFC class)
 function renderLayers(classes) {
