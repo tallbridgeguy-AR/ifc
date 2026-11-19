@@ -68,10 +68,18 @@ async function openFile(file) {
 }
 
 $('file').addEventListener('change', (e) => { openFile(e.target.files[0]); e.target.value = ''; });
+// Accept a dropped file anywhere on the page, not just over the 3D view.
 const vp = $('viewport');
-vp.addEventListener('dragover', (e) => { e.preventDefault(); vp.classList.add('dragging'); });
-vp.addEventListener('dragleave', () => vp.classList.remove('dragging'));
-vp.addEventListener('drop', (e) => { e.preventDefault(); vp.classList.remove('dragging'); openFile(e.dataTransfer.files[0]); });
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; vp.classList.add('dragging'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; vp.classList.remove('dragging'); } });
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  vp.classList.remove('dragging');
+  if (e.dataTransfer?.files?.length) openFile(e.dataTransfer.files[0]);
+});
 
 function onLoaded(m) {
   model = m;
@@ -380,6 +388,7 @@ document.querySelectorAll('.tabs button').forEach((btn) => btn.addEventListener(
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b === btn));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${btn.dataset.tab}`));
 }));
+window.__viewerReady = true; // tells src/boot.js the viewer started
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { select([]); viewer.clearMarker(); }
   if (e.key === 'f' && document.activeElement?.tagName !== 'INPUT') viewer.fitAll();
