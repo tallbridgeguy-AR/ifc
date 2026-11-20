@@ -90,6 +90,7 @@ function onLoaded(m) {
   renderLayers(m.classes);
   setupAlignments(m.alignments);
   $('fit-btn').disabled = false;
+  updateVisUI();
   $('run-checks').disabled = false;
   const schemaNote = m.schema && !/IFC4X3/i.test(m.schema) ? ` — note: schema is ${m.schema}, not IFC4.3` : '';
   setStatus(`${fileName}: ${fmtInt(m.stats.elements)} elements, ${fmtInt(m.stats.triangles)} triangles, ` +
@@ -103,9 +104,10 @@ function resetPanels() {
   $('search-results').hidden = true;
   $('tree-search').value = '';
   $('tree-search').disabled = true;
+  updateVisUI();
   $('tab-layers').innerHTML = '';
   $('check-results').innerHTML = '';
-  $('props').innerHTML = '<div class="empty">Click an element.</div>';
+  $('props').innerHTML = EMPTY_PROPS;
   $('align-group').hidden = true;
   $('status-right').textContent = '';
 }
@@ -200,12 +202,13 @@ $('goto-form').addEventListener('submit', (e) => {
 // ------------------------------------------------------------ picking
 let down = null;
 let hoverTimer = 0;
-viewer.canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
+viewer.canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, button: e.button }; hideMenu(); });
 viewer.canvas.addEventListener('pointerup', (e) => {
   if (!down) return;
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4;
-  down = null;
-  if (!moved && model) onClick(e);
+  const button = down.button;
+  if (button !== 2) down = null; // keep right-button info for the contextmenu event
+  if (!moved && model && button === 0) onClick(e);
 });
 viewer.canvas.addEventListener('pointermove', (e) => {
   clearTimeout(hoverTimer);
@@ -220,6 +223,15 @@ viewer.canvas.addEventListener('pointermove', (e) => {
 
 function onClick(e) {
   const hit = viewer.pick(e.clientX, e.clientY);
+  const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+  if (additive) {
+    if (!hit) return;
+    const cur = viewer.selected.slice();
+    const i = cur.indexOf(hit.id);
+    if (i >= 0) cur.splice(i, 1); else cur.push(hit.id);
+    select(cur, { label: `${cur.length} selected` });
+    return;
+  }
   if (!hit) { select([]); viewer.clearMarker(); return; }
   const r = readout(hit.point);
   if (r) {
@@ -230,11 +242,13 @@ function onClick(e) {
 }
 
 // ------------------------------------------------------------ selection + properties
+const EMPTY_PROPS = '<div class="empty">Click an element.<br><span class="muted">Ctrl+click adds to the selection. Right-click for Isolate / Hide.</span></div>';
 async function select(ids, opts = {}) {
   const info = viewer.highlight(ids);
+  updateVisUI();
   if (opts.zoom && info.box) viewer.fitBox(info.box, 1.6);
   const props = $('props');
-  if (!ids.length) { props.innerHTML = '<div class="empty">Click an element.</div>'; return; }
+  if (!ids.length) { props.innerHTML = EMPTY_PROPS; return; }
   const range = stationRange(info.samples);
   const rangeHtml = range ? `<div class="station-card">${range}${opts.clickReadout ? `<div class="click">Clicked: ${esc(opts.clickReadout)}</div>` : ''}</div>` : '';
 
@@ -462,7 +476,8 @@ function renderLayers(classes) {
     order.map((c) => `<label class="layer"><input type="checkbox" data-cls="${c.i}" checked> ${esc(c.name.replace(/^Ifc/, ''))} <span class="count">${fmtInt(c.count)}</span></label>`).join('');
   const apply = () => {
     const hidden = [...el.querySelectorAll('input[data-cls]')].filter((c) => !c.checked).map((c) => Number(c.dataset.cls));
-    viewer.setHiddenClasses(hidden);
+    viewer.setVisibility({ hiddenClasses: new Set(hidden) });
+    updateVisUI();
   };
   el.querySelectorAll('input[data-cls]').forEach((c) => c.addEventListener('change', apply));
   $('show-all').onclick = () => { el.querySelectorAll('input[data-cls]').forEach((c) => (c.checked = true)); apply(); };
@@ -502,14 +517,123 @@ $('run-checks').addEventListener('click', async () => {
   }
 });
 
+// ------------------------------------------------------------ isolate / hide / ghost
+function isolateSelection() {
+  const ids = viewer.selected;
+  if (!ids.length) return;
+  viewer.setVisibility({ isolate: new Set(ids), hiddenIds: new Set() });
+  const box = viewer.visibleBox();
+  if (box) viewer.fitBox(box, 1.4);
+  updateVisUI();
+}
+function hideSelection() {
+  const ids = viewer.selected;
+  if (!ids.length) return;
+  const hidden = new Set(viewer.vis.hiddenIds);
+  for (const id of ids) hidden.add(id);
+  viewer.setVisibility({ hiddenIds: hidden });
+  select([]);
+}
+function toggleGhost() {
+  viewer.setVisibility({ ghost: !viewer.vis.ghost });
+  updateVisUI();
+}
+function showAll() {
+  viewer.setVisibility({ isolate: null, hiddenIds: new Set(), hiddenClasses: new Set() });
+  document.querySelectorAll('#tab-layers input[data-cls]').forEach((c) => (c.checked = true));
+  updateVisUI();
+}
+function zoomSelection() {
+  const info = viewer.highlight(viewer.selected);
+  if (info.box) viewer.fitBox(info.box, 1.6);
+}
+
+function updateVisUI() {
+  const v = viewer.vis;
+  const hasSel = viewer.selected.length > 0;
+  $('iso-btn').disabled = !model || !hasSel;
+  $('hide-btn').disabled = !model || !hasSel;
+  $('ghost-btn').disabled = !model;
+  $('ghost-btn').classList.toggle('on', v.ghost);
+  $('ghost-btn').setAttribute('aria-pressed', String(v.ghost));
+  const parts = [];
+  if (v.isolate) parts.push(`Isolated: ${fmtInt(v.isolate.size)}`);
+  if (v.hiddenIds.size) parts.push(`${fmtInt(v.hiddenIds.size)} hidden`);
+  if (v.hiddenClasses.size) parts.push(`${v.hiddenClasses.size} layer${v.hiddenClasses.size > 1 ? 's' : ''} off`);
+  $('showall-btn').disabled = !model || !parts.length;
+  $('vis-chip').hidden = !parts.length;
+  $('vis-chip').textContent = parts.join(' · ');
+}
+
+$('iso-btn').addEventListener('click', isolateSelection);
+$('hide-btn').addEventListener('click', hideSelection);
+$('ghost-btn').addEventListener('click', toggleGhost);
+$('showall-btn').addEventListener('click', showAll);
+
+// Right-click menu on the model (a right-drag still pans).
+const menu = $('ctx-menu');
+function hideMenu() { menu.hidden = true; }
+viewer.canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const d = down;
+  down = null;
+  if (!model || (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4)) return;
+  const hit = viewer.pick(e.clientX, e.clientY);
+  if (hit && !viewer.selected.includes(hit.id)) select([hit.id]);
+  const n = viewer.selected.length;
+  const v = viewer.vis;
+  const anyHidden = v.isolate || v.hiddenIds.size || v.hiddenClasses.size;
+  const items = [
+    ['Isolate', 'I', isolateSelection, n > 0],
+    ['Hide', 'H', hideSelection, n > 0],
+    [v.ghost ? 'Ghost off' : 'Ghost hidden items', 'G', toggleGhost, true],
+    ['Show all', 'U', showAll, !!anyHidden],
+    null,
+    ['Zoom to selection', 'Z', zoomSelection, n > 0],
+    ['Fit view', 'F', fitView, true],
+    ['Clear selection', 'Esc', () => select([]), n > 0],
+  ];
+  menu.innerHTML = '';
+  if (n) {
+    const head = document.createElement('div');
+    head.className = 'ctx-head';
+    head.textContent = `${fmtInt(n)} selected`;
+    menu.appendChild(head);
+  }
+  for (const it of items) {
+    if (!it) { menu.appendChild(Object.assign(document.createElement('div'), { className: 'ctx-sep' })); continue; }
+    const [label, key, fn, enabled] = it;
+    const b = document.createElement('button');
+    b.disabled = !enabled;
+    b.innerHTML = `<span>${esc(label)}</span><kbd>${esc(key)}</kbd>`;
+    b.addEventListener('click', () => { hideMenu(); fn(); });
+    menu.appendChild(b);
+  }
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(e.clientX, window.innerWidth - r.width - 6)}px`;
+  menu.style.top = `${Math.min(e.clientY, window.innerHeight - r.height - 6)}px`;
+});
+window.addEventListener('pointerdown', (e) => { if (!menu.contains(e.target)) hideMenu(); });
+window.addEventListener('blur', hideMenu);
+
 // ------------------------------------------------------------ misc UI
-$('fit-btn').addEventListener('click', () => viewer.fitAll());
+$('fit-btn').addEventListener('click', fitView);
+function fitView() {
+  const v = viewer.vis;
+  const partial = v.isolate || v.hiddenIds.size || v.hiddenClasses.size;
+  const box = partial ? viewer.visibleBox() : null;
+  if (box) viewer.fitBox(box); else viewer.fitAll();
+}
 document.querySelectorAll('.tabs button').forEach((btn) => btn.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b === btn));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${btn.dataset.tab}`));
 }));
 window.__viewerReady = true; // tells src/boot.js the viewer started
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { select([]); viewer.clearMarker(); }
-  if (e.key === 'f' && document.activeElement?.tagName !== 'INPUT') viewer.fitAll();
+  if (e.key === 'Escape') { hideMenu(); select([]); viewer.clearMarker(); return; }
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey || !model) return;
+  const action = { f: fitView, i: isolateSelection, h: hideSelection, g: toggleGhost, u: showAll, z: zoomSelection }[e.key.toLowerCase()];
+  if (action) { e.preventDefault(); hideMenu(); action(); }
 });

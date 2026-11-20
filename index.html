@@ -6,7 +6,7 @@
   <!-- Blocks this page from sending data anywhere but its own origin. See README → Privacy. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gh7NRJ7MEWdYUGMcXx0SUMJY93gUi2UqlztG1amlvwA='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>tallbridgeguy IFC Viewer — prototype</title>
+  <title>Bridge IFC Viewer — prototype</title>
   <link rel="stylesheet" href="styles.css">
   <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
   <script src="src/boot.js"></script>
@@ -14,9 +14,16 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">tallbridgeguy IFC Viewer <span class="tag">prototype</span></div>
+    <div class="brand">Bridge IFC Viewer <span class="tag">prototype</span></div>
     <label class="btn primary">Open IFC…<input id="file" type="file" accept=".ifc,.IFC" hidden></label>
     <button class="btn" id="fit-btn" disabled title="Fit view (F)">Fit view</button>
+    <div class="vis-group">
+      <button class="btn" id="iso-btn" disabled title="Show only the selected elements (I)">Isolate</button>
+      <button class="btn" id="hide-btn" disabled title="Hide the selected elements (H)">Hide</button>
+      <button class="btn toggle" id="ghost-btn" disabled aria-pressed="false" title="Show isolated-out and hidden elements as faint context (G)">Ghost</button>
+      <button class="btn" id="showall-btn" disabled title="Show everything again (U)">Show all</button>
+      <span class="vis-chip" id="vis-chip" hidden></span>
+    </div>
     <div class="align-group" id="align-group" hidden>
       <label>Alignment <select id="align-select"></select></label>
       <form id="goto-form"><input id="goto-input" placeholder="Go to station" size="18" autocomplete="off"><button class="btn">Go</button></form>
@@ -66,6 +73,38 @@
     </aside>
   </main>
 
-  <footer class="statusbar"><span id="status-left">Ready.</span><span id="status-right"></span></footer>
+  <div id="ctx-menu" class="ctx-menu" role="menu" hidden></div>
+
+  <footer class="statusbar">
+    <span id="status-left">Ready.</span>
+    <span id="status-right"></span>
+    <span class="credit">
+      <a href="https://github.com/tallbridgeguy-AR" target="_blank" rel="noopener noreferrer">Created by tallbridgeguy</a>
+      <span aria-hidden="true">·</span>
+      <button type="button" id="about-btn" class="linklike">About</button>
+    </span>
+  </footer>
+
+  <dialog id="about-dialog" class="about">
+    <h2>Bridge IFC Viewer <span class="tag">prototype v0.3</span></h2>
+    <p>An open-source, in-browser viewer for IFC4.3 bridge models, built for bridge office review.</p>
+    <p class="about-credit">Created by <a href="https://github.com/tallbridgeguy-AR" target="_blank" rel="noopener noreferrer">tallbridgeguy</a>
+      · <a href="https://github.com/tallbridgeguy-AR/ifc" target="_blank" rel="noopener noreferrer">Source code</a></p>
+    <h3>Privacy</h3>
+    <p>Models are read and processed inside this browser tab. Nothing is uploaded or sent anywhere.</p>
+    <h3>Shortcuts</h3>
+    <table class="keys">
+      <tr><td><kbd>Click</kbd> / <kbd>Ctrl</kbd>+<kbd>Click</kbd></td><td>Select / add to selection</td></tr>
+      <tr><td><kbd>I</kbd> <kbd>H</kbd> <kbd>G</kbd> <kbd>U</kbd></td><td>Isolate · Hide · Ghost · Show all</td></tr>
+      <tr><td><kbd>Z</kbd> <kbd>F</kbd> <kbd>Esc</kbd></td><td>Zoom to selection · Fit view · Clear</td></tr>
+      <tr><td>Right-click</td><td>Menu with the same actions</td></tr>
+    </table>
+    <h3>Acknowledgements</h3>
+    <p class="muted">Built with <a href="https://threejs.org" target="_blank" rel="noopener noreferrer">three.js</a> (MIT) and
+      <a href="https://github.com/ThatOpen/engine_web-ifc" target="_blank" rel="noopener noreferrer">web-ifc</a> by That Open Company (MPL-2.0).
+      IFC is an open standard by <a href="https://www.buildingsmart.org" target="_blank" rel="noopener noreferrer">buildingSMART International</a>.
+      Not an official product of any agency.</p>
+    <div class="about-actions"><button type="button" class="btn primary" id="about-close">Close</button></div>
+  </dialog>
 </body>
 </html>

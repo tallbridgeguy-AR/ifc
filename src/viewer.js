@@ -41,7 +41,7 @@ export class Viewer {
     this.meshes = [];
     this.materials = new Map();
     this.box = new THREE.Box3();
-    this.hidden = new Set();
+    this.vis = { hiddenClasses: new Set(), hiddenIds: new Set(), isolate: null, ghost: false };
     this.selected = [];
     this.M = null;
     this.Minv = null;
@@ -69,13 +69,13 @@ export class Viewer {
   }
 
   clear() {
-    for (const mesh of this.meshes) mesh.geometry.dispose();
+    for (const mesh of this.meshes) { mesh.geometry.dispose(); mesh.userData.ghost.geometry.dispose(); }
     for (const m of this.materials.values()) m.dispose();
     this.modelGroup.clear();
     this.meshes = [];
     this.materials.clear();
     this.box.makeEmpty();
-    this.hidden.clear();
+    this.vis = { hiddenClasses: new Set(), hiddenIds: new Set(), isolate: null, ghost: false };
     this.clearAlignment();
     this.highlight([]);
     this.clearMarker();
@@ -111,11 +111,33 @@ export class Viewer {
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, this.materialFor(c.color));
     mesh.matrixAutoUpdate = false;
-    mesh.userData = { fullIndex: c.indices, fullRanges: c.ranges, ranges: c.ranges };
-    this.modelGroup.add(mesh);
+
+    // Ghost twin: shares vertex and index buffers, draws a different slice of the index.
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', g.attributes.position);
+    gg.setAttribute('normal', g.attributes.normal);
+    gg.setIndex(g.index);
+    gg.boundingBox = g.boundingBox;
+    gg.boundingSphere = g.boundingSphere;
+    const ghost = new THREE.Mesh(gg, this.ghostMaterial);
+    ghost.matrixAutoUpdate = false;
+    ghost.renderOrder = 2;
+    ghost.visible = false;
+
+    mesh.userData = { ranges: c.ranges, visCount: c.indices.length, ghostCount: 0, ghost };
+    this.modelGroup.add(mesh, ghost);
     this.meshes.push(mesh);
     this.box.union(g.boundingBox);
     this.requestRender();
+  }
+
+  get ghostMaterial() {
+    if (!this._ghostMat) {
+      this._ghostMat = new THREE.MeshLambertMaterial({
+        color: 0x9aa7b6, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide,
+      });
+    }
+    return this._ghostMat;
   }
 
   /** Map a triangle back to its IFC element via the chunk's range table. */
@@ -144,31 +166,72 @@ export class Viewer {
     return null;
   }
 
-  setHiddenClasses(hidden) {
-    this.hidden = new Set(hidden);
+  /**
+   * Visibility state:
+   *   hiddenClasses  IFC class indices switched off in Layers (always fully hidden)
+   *   hiddenIds      elements the user hid
+   *   isolate        Set of ids to show exclusively, or null
+   *   ghost          draw isolated-out / user-hidden elements as faint context
+   * Each chunk's index buffer is reordered in place into [visible | ghost | hidden]
+   * so a single buffer serves the solid mesh, its ghost twin, and picking.
+   */
+  setVisibility(patch) {
+    Object.assign(this.vis, patch);
+    const { hiddenClasses, hiddenIds, isolate, ghost } = this.vis;
+    const stateOf = (id, cls) => {
+      if (hiddenClasses.has(cls)) return 2;
+      if (hiddenIds.has(id) || (isolate && !isolate.has(id))) return ghost ? 1 : 2;
+      return 0;
+    };
     for (const mesh of this.meshes) {
-      const { fullIndex, fullRanges } = mesh.userData;
-      if (!this.hidden.size) {
-        mesh.geometry.setIndex(new THREE.BufferAttribute(fullIndex, 1));
-        mesh.userData.ranges = fullRanges;
-        mesh.visible = true;
-        continue;
+      const r = mesh.userData.ranges;
+      const indexAttr = mesh.geometry.index;
+      const arr = indexAttr.array;
+      const lists = [[], [], []];
+      const counts = [0, 0, 0];
+      for (let i = 0; i < r.length; i += 4) {
+        const st = stateOf(r[i], r[i + 3]);
+        lists[st].push(i);
+        counts[st] += r[i + 2];
       }
-      const out = new Uint32Array(fullIndex.length);
-      const ranges = [];
-      let pos = 0;
-      for (let i = 0; i < fullRanges.length; i += 4) {
-        const [id, start, count, cls] = [fullRanges[i], fullRanges[i + 1], fullRanges[i + 2], fullRanges[i + 3]];
-        if (this.hidden.has(cls)) continue;
-        out.set(fullIndex.subarray(start, start + count), pos);
-        ranges.push(id, pos, count, cls);
-        pos += count;
+      const tmp = new Uint32Array(arr.length);
+      const out = new Uint32Array(r.length);
+      let pos = 0, o = 0;
+      for (const list of lists) {
+        for (const i of list) {
+          const start = r[i + 1], count = r[i + 2];
+          tmp.set(arr.subarray(start, start + count), pos);
+          out[o] = r[i]; out[o + 1] = pos; out[o + 2] = count; out[o + 3] = r[i + 3];
+          pos += count; o += 4;
+        }
       }
-      mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, pos), 1));
-      mesh.userData.ranges = Uint32Array.from(ranges);
-      mesh.visible = pos > 0;
+      arr.set(tmp);
+      indexAttr.needsUpdate = true;
+      mesh.userData.ranges = out;
+      mesh.userData.visCount = counts[0];
+      mesh.userData.ghostCount = counts[1];
+      mesh.geometry.setDrawRange(0, counts[0]);
+      mesh.visible = counts[0] > 0;
+      const gm = mesh.userData.ghost;
+      gm.geometry.setDrawRange(counts[0], counts[1]);
+      gm.visible = counts[1] > 0;
     }
     this.highlight(this.selected);
+  }
+
+  /** Bounding box of what is currently drawn solid. */
+  visibleBox() {
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    for (const mesh of this.meshes) {
+      const n = mesh.userData.visCount;
+      if (!n) continue;
+      if (n === mesh.geometry.index.count) { box.union(mesh.geometry.boundingBox); continue; }
+      const idx = mesh.geometry.index.array, P = mesh.geometry.attributes.position.array;
+      const stride = n > 300000 ? 9 : 1;
+      for (let k = 0; k < n; k += stride) { const j = idx[k] * 3; box.expandByPoint(v.set(P[j], P[j + 1], P[j + 2])); }
+    }
+    return box.isEmpty() ? null : box;
   }
 
   /**
@@ -185,18 +248,18 @@ export class Viewer {
     let triangles = 0;
     if (set.size) {
       for (const mesh of this.meshes) {
-        if (!mesh.visible) continue;
         const { ranges } = mesh.userData;
+        const limit = mesh.userData.visCount + mesh.userData.ghostCount; // skip fully hidden
         const index = mesh.geometry.index.array;
         const P = mesh.geometry.attributes.position.array;
         const Nn = mesh.geometry.attributes.normal.array;
         let count = 0;
-        for (let i = 0; i < ranges.length; i += 4) if (set.has(ranges[i])) count += ranges[i + 2];
+        for (let i = 0; i < ranges.length; i += 4) if (ranges[i + 1] < limit && set.has(ranges[i])) count += ranges[i + 2];
         if (!count) continue;
         const pos = new Float32Array(count * 3), nrm = new Float32Array(count * 3);
         let o = 0;
         for (let i = 0; i < ranges.length; i += 4) {
-          if (!set.has(ranges[i])) continue;
+          if (ranges[i + 1] >= limit || !set.has(ranges[i])) continue;
           const start = ranges[i + 1], end = start + ranges[i + 2];
           for (let k = start; k < end; k++) {
             const v = index[k] * 3;

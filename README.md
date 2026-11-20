@@ -1,5 +1,7 @@
 # Bridge IFC Viewer — prototype
 
+Created by [tallbridgeguy](https://github.com/tallbridgeguy-AR).
+
 A proof-of-concept **IFC4.3 bridge model viewer** for a state DOT bridge office. It runs entirely in the browser, as a static site with no build step and no server code. It can be hosted on GitHub Pages or on any internal web server.
 
 > **Status:** prototype. The alignment math has unit tests. The full viewer needs testing on real bridge models from your authoring tools (OpenBridge, Allplan, Revit, Tekla, etc.). See [Known limitations](#known-limitations).
@@ -15,6 +17,7 @@ A proof-of-concept **IFC4.3 bridge model viewer** for a state DOT bridge office.
 | **Element station range** | Selecting an element (or a whole pier) shows the station and offset range it covers. |
 | **Go to station** | Type `107+00` (or `1+250` for metric) to fly to that station. |
 | Properties | Attributes, property sets and quantity sets for the picked element. |
+| **Isolate / Hide / Ghost** | Ctrl+click to multi-select, then Isolate (I), Hide (H), Ghost the rest as faint context (G), Show all (U). Also on the right-click menu. Works with tree and search selections. |
 | Layers | Show/hide by IFC class. Turning rebar off is the big win on heavy models. |
 | **Model checks** | Rules in `config/requirements.json` (e.g. "every girder has a mark", "deck slabs state concrete class"). Click to select failing elements. |
 | Large-model handling | Parsing runs in a Web Worker. Geometry is merged by material. State-plane coordinates are shifted near the origin to avoid jitter. |

@@ -7,6 +7,15 @@
     window.addEventListener(type, function (e) { e.preventDefault(); });
   });
 
+  document.addEventListener('DOMContentLoaded', function () {
+    var btn = document.getElementById('about-btn');
+    var dlg = document.getElementById('about-dialog');
+    if (btn && dlg && dlg.showModal) btn.addEventListener('click', function () { dlg.showModal(); });
+    if (dlg) dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); }); // click backdrop to close
+    var close = document.getElementById('about-close');
+    if (close && dlg) close.addEventListener('click', function () { dlg.close(); });
+  });
+
   var errors = [];
   window.addEventListener('error', function (e) {
     var where = e.filename ? ' (' + e.filename.split('/').slice(-2).join('/') + ')' : '';
