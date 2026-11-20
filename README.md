@@ -1,8 +1,8 @@
-# Bridge IFC Viewer — prototype
+# tallbridgeguy IFC Viewer — prototype
 
 Created by [tallbridgeguy](https://github.com/tallbridgeguy-AR).
 
-A proof-of-concept **IFC4.3 bridge model viewer** for a state DOT bridge office. It runs entirely in the browser, as a static site with no build step and no server code. It can be hosted on GitHub Pages or on any internal web server.
+A proof-of-concept **IFC4.3 bridge model viewer**. It runs entirely in the browser, as a static site with no build step and no server code. It can be hosted on GitHub Pages or on any internal web server.
 
 > **Status:** prototype. The alignment math has unit tests. The full viewer needs testing on real bridge models from your authoring tools (OpenBridge, Allplan, Revit, Tekla, etc.). See [Known limitations](#known-limitations).
 
