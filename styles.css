@@ -64,7 +64,8 @@ code { font-size: 12px; background: #eef1f5; padding: 1px 4px; border-radius: 3p
   font: 15px/1 system-ui, sans-serif; color: var(--muted); background: #fff; border: 1px solid var(--line); border-radius: 6px;
   cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .panel-toggle:hover { color: #fff; background: var(--accent); border-color: var(--accent); }
-.pivot-dot { width: 12px; height: 12px; border-radius: 50%; background: #d62828; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; }
+.pivot-dot { width: 12px; height: 12px; border-radius: 50%; background: #d62828; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; opacity: 0; transition: opacity .3s ease; }
+.pivot-dot.show { opacity: 1; transition: none; }
 .splitter:hover, .splitter.active { background: var(--accent); }
 .panel { background: var(--panel); overflow: auto; min-height: 0; }
 .panel.left { }

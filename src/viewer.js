@@ -355,26 +355,29 @@ export class Viewer {
     this._anim = requestAnimationFrame(step);
   }
 
-  /** Small round marker at the orbit pivot. hideAfter=0 keeps it until hidePivot(). */
+  /**
+   * Small round marker at the orbit pivot. hideAfter=0 keeps it until hidePivot().
+   * Shown/hidden with a CSS class (not Object3D.visible), so it fades out on time
+   * even when nothing else causes the 3D view to redraw.
+   */
   showPivot(point, hideAfter = 0) {
     if (!this._pivot) {
-      const dot = document.createElement('div');
-      dot.className = 'pivot-dot';
-      this._pivot = new CSS2DObject(dot);
+      this._pivotEl = document.createElement('div');
+      this._pivotEl.className = 'pivot-dot';
+      this._pivot = new CSS2DObject(this._pivotEl);
       this._pivot.renderOrder = 30;
       this.scene.add(this._pivot);
     }
     clearTimeout(this._pivotTimer);
     this._pivot.position.copy(point);
-    this._pivot.visible = true;
+    this._pivotEl.classList.add('show');
+    this.requestRender(); // moves the dot to the new point
     if (hideAfter) this.hidePivot(hideAfter);
-    this.requestRender();
   }
   hidePivot(delay = 0) {
     clearTimeout(this._pivotTimer);
-    this._pivotTimer = setTimeout(() => {
-      if (this._pivot) { this._pivot.visible = false; this.requestRender(); }
-    }, delay);
+    const hide = () => this._pivotEl?.classList.remove('show');
+    if (delay) this._pivotTimer = setTimeout(hide, delay); else hide();
   }
 
   modelSize() {

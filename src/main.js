@@ -679,7 +679,7 @@ document.querySelectorAll('.tabs button').forEach((btn) => btn.addEventListener(
 }));
 window.__viewerReady = true; // tells src/boot.js the viewer started
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { hideMenu(); select([]); viewer.clearMarker(); return; }
+  if (e.key === 'Escape') { hideMenu(); select([]); viewer.clearMarker(); viewer.hidePivot(); return; }
   const tag = document.activeElement?.tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === '[') { panels.left.toggle(); return; }
