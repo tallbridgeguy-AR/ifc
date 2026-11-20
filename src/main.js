@@ -221,6 +221,17 @@ viewer.canvas.addEventListener('pointermove', (e) => {
   }, 120);
 });
 
+// Double-click: make the element under the cursor the centre of rotation.
+viewer.canvas.addEventListener('dblclick', (e) => {
+  if (!model) return;
+  const hit = viewer.pick(e.clientX, e.clientY);
+  if (!hit) return;
+  if (!viewer.selected.includes(hit.id)) select([hit.id]);
+  const box = viewer.highlight(viewer.selected).box;
+  const size = box ? box.getSize(hit.point.clone()).length() : 0;
+  viewer.focusOn(hit.point, size);
+});
+
 function onClick(e) {
   const hit = viewer.pick(e.clientX, e.clientY);
   const additive = e.ctrlKey || e.metaKey || e.shiftKey;
@@ -242,7 +253,7 @@ function onClick(e) {
 }
 
 // ------------------------------------------------------------ selection + properties
-const EMPTY_PROPS = '<div class="empty">Click an element.<br><span class="muted">Ctrl+click adds to the selection. Right-click for Isolate / Hide.</span></div>';
+const EMPTY_PROPS = '<div class="empty">Click an element.<br><span class="muted">Ctrl+click adds to the selection. Double-click to orbit around a spot. Right-click for Isolate / Hide.</span></div>';
 async function select(ids, opts = {}) {
   const info = viewer.highlight(ids);
   updateVisUI();
@@ -437,9 +448,42 @@ async function runSearch() {
 function setupSplitter(splitId, panelId, side) {
   const split = $(splitId), panel = $(panelId), layout = document.querySelector('.layout');
   const key = `bridge-viewer-${side}-width`;
+  const collapsedKey = `bridge-viewer-${side}-collapsed`;
+  const cls = `${side}-collapsed`;
+  const label = side === 'left' ? 'bridge tree' : 'properties';
+  const shortcut = side === 'left' ? '[' : ']';
   const apply = (w) => layout.style.setProperty(`--${side}-w`, `${w}px`);
   try { const saved = Number(localStorage.getItem(key)); if (saved > 0) apply(saved); } catch { /* storage unavailable */ }
+
+  // Collapse / expand tab on the splitter.
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'panel-toggle';
+  split.appendChild(toggle);
+  const isCollapsed = () => layout.classList.contains(cls);
+  const setCollapsed = (c, animate = true) => {
+    if (animate) {
+      layout.classList.add('animating');
+      clearTimeout(setCollapsed.t);
+      setCollapsed.t = setTimeout(() => layout.classList.remove('animating'), 250);
+    }
+    layout.classList.toggle(cls, c);
+    const arrowOpen = side === 'left' ? '‹' : '›', arrowClosed = side === 'left' ? '›' : '‹';
+    toggle.textContent = c ? arrowClosed : arrowOpen;
+    toggle.title = `${c ? 'Show' : 'Hide'} the ${label} panel (${shortcut})`;
+    toggle.setAttribute('aria-expanded', String(!c));
+    split.title = c ? '' : 'Drag to resize · double-click to reset width';
+    try { localStorage.setItem(collapsedKey, c ? '1' : '0'); } catch { /* ignore */ }
+  };
+  toggle.addEventListener('pointerdown', (e) => e.stopPropagation());
+  toggle.addEventListener('dblclick', (e) => e.stopPropagation());
+  toggle.addEventListener('click', () => setCollapsed(!isCollapsed()));
+  let initial = false;
+  try { initial = localStorage.getItem(collapsedKey) === '1'; } catch { /* ignore */ }
+  setCollapsed(initial, false);
+
   split.addEventListener('pointerdown', (e) => {
+    if (isCollapsed()) return;
     e.preventDefault();
     split.setPointerCapture(e.pointerId);
     split.classList.add('active');
@@ -459,13 +503,17 @@ function setupSplitter(splitId, panelId, side) {
     split.addEventListener('pointermove', move);
     split.addEventListener('pointerup', up);
   });
-  split.addEventListener('dblclick', () => { // double-click resets
+  split.addEventListener('dblclick', () => { // double-click resets width
+    if (isCollapsed()) return;
     layout.style.removeProperty(`--${side}-w`);
     try { localStorage.removeItem(key); } catch { /* ignore */ }
   });
+  return { toggle: () => setCollapsed(!isCollapsed()), set: setCollapsed, isCollapsed };
 }
-setupSplitter('split-left', 'left-panel', 'left');
-setupSplitter('split-right', 'right-panel', 'right');
+const panels = {
+  left: setupSplitter('split-left', 'left-panel', 'left'),
+  right: setupSplitter('split-right', 'right-panel', 'right'),
+};
 
 // ------------------------------------------------------------ layers (by IFC class)
 function renderLayers(classes) {
@@ -633,7 +681,15 @@ window.__viewerReady = true; // tells src/boot.js the viewer started
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { hideMenu(); select([]); viewer.clearMarker(); return; }
   const tag = document.activeElement?.tagName;
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey || !model) return;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '[') { panels.left.toggle(); return; }
+  if (e.key === ']') { panels.right.toggle(); return; }
+  if (e.key === '\\') {
+    const anyOpen = !panels.left.isCollapsed() || !panels.right.isCollapsed();
+    panels.left.set(anyOpen); panels.right.set(anyOpen);
+    return;
+  }
+  if (!model) return;
   const action = { f: fitView, i: isolateSelection, h: hideSelection, g: toggleGhost, u: showAll, z: zoomSelection }[e.key.toLowerCase()];
   if (action) { e.preventDefault(); hideMenu(); action(); }
 });

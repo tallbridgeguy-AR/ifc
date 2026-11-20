@@ -36,6 +36,12 @@ export class Viewer {
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.screenSpacePanning = true;
     this.controls.addEventListener('change', () => this.requestRender());
+    // Show the rotation pivot while orbiting; any user input cancels a camera glide.
+    this.controls.addEventListener('start', () => {
+      if (this._anim) { cancelAnimationFrame(this._anim); this._anim = 0; }
+      this.showPivot(this.controls.target, 0);
+    });
+    this.controls.addEventListener('end', () => this.hidePivot(400));
 
     this.raycaster = new THREE.Raycaster();
     this.meshes = [];
@@ -283,8 +289,9 @@ export class Viewer {
         this.highlightGroup.add(new THREE.Mesh(g, mat));
       }
     }
+    this.selectionBox = box.isEmpty() ? null : box;
     this.requestRender();
-    return { box: box.isEmpty() ? null : box, samples: Float32Array.from(samples), triangles };
+    return { box: this.selectionBox, samples: Float32Array.from(samples), triangles };
   }
 
   // ------------------------------------------------------------ camera
@@ -318,6 +325,58 @@ export class Viewer {
     this.controls.update();
     this.requestRender();
   }
+  /**
+   * Make a point the new centre of rotation: glide the camera to look at it and
+   * move in a bit (never further out). `size` is the element's size, so large
+   * elements like a whole deck aren't zoomed into too far.
+   */
+  focusOn(point, size = 0) {
+    const cam = this.camera.position;
+    const curDist = cam.distanceTo(point);
+    const want = Math.max(size * 1.8, this.modelSize() / 200, 1);
+    const dist = Math.min(curDist, Math.max(curDist * 0.55, want));
+    const dir = cam.clone().sub(point).normalize();
+    this.animateView(point.clone(), point.clone().addScaledVector(dir, dist));
+    this.showPivot(point, 1600);
+  }
+
+  animateView(toTarget, toPos, ms = 450) {
+    if (this._anim) cancelAnimationFrame(this._anim);
+    const t0 = performance.now();
+    const fromT = this.controls.target.clone(), fromP = this.camera.position.clone();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / ms);
+      const e = 1 - (1 - k) ** 3; // ease-out
+      this.controls.target.lerpVectors(fromT, toTarget, e);
+      this.camera.position.lerpVectors(fromP, toPos, e);
+      this.controls.update();
+      this._anim = k < 1 ? requestAnimationFrame(step) : 0;
+    };
+    this._anim = requestAnimationFrame(step);
+  }
+
+  /** Small round marker at the orbit pivot. hideAfter=0 keeps it until hidePivot(). */
+  showPivot(point, hideAfter = 0) {
+    if (!this._pivot) {
+      const dot = document.createElement('div');
+      dot.className = 'pivot-dot';
+      this._pivot = new CSS2DObject(dot);
+      this._pivot.renderOrder = 30;
+      this.scene.add(this._pivot);
+    }
+    clearTimeout(this._pivotTimer);
+    this._pivot.position.copy(point);
+    this._pivot.visible = true;
+    if (hideAfter) this.hidePivot(hideAfter);
+    this.requestRender();
+  }
+  hidePivot(delay = 0) {
+    clearTimeout(this._pivotTimer);
+    this._pivotTimer = setTimeout(() => {
+      if (this._pivot) { this._pivot.visible = false; this.requestRender(); }
+    }, delay);
+  }
+
   modelSize() {
     return this.box.isEmpty() ? 100 : this.box.getSize(new THREE.Vector3()).length();
   }
